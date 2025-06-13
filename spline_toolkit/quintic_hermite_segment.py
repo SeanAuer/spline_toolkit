@@ -28,6 +28,48 @@ class QuinticHermiteSegment:
             for d in range(self.dim)
         ], axis=0)
 
+    @property
+    def control_points(self):
+        return [self.p0, self.p1]
+
+    @control_points.setter
+    def control_points(self, points):
+        if len(points) != 2:
+            raise ValueError("control_points must contain exactly two points.")
+        p0, p1 = np.array(points[0]), np.array(points[1])
+        if not (p0.shape == p1.shape == self.v0.shape == self.v1.shape == self.a0.shape == self.a1.shape):
+            raise ValueError("All entries must have the same shape (1D, 2D, or 3D).")
+        self.p0, self.p1 = p0, p1
+        self._recompute_coefficients()
+
+    @property
+    def tangents(self):
+        return [self.v0, self.v1]
+
+    @tangents.setter
+    def tangents(self, tangents):
+        if len(tangents) != 2:
+            raise ValueError("tangents must contain exactly two vectors.")
+        v0, v1 = np.array(tangents[0]), np.array(tangents[1])
+        if not (self.p0.shape == self.p1.shape == v0.shape == v1.shape == self.a0.shape == self.a1.shape):
+            raise ValueError("All entries must have the same shape (1D, 2D, or 3D).")
+        self.v0, self.v1 = v0, v1
+        self._recompute_coefficients()
+
+    @property
+    def curvatures(self):
+        return [self.a0, self.a1]
+
+    @curvatures.setter
+    def curvatures(self, curvatures):
+        if len(curvatures) != 2:
+            raise ValueError("curvatures must contain exactly two vectors.")
+        a0, a1 = np.array(curvatures[0]), np.array(curvatures[1])
+        if not (self.p0.shape == self.p1.shape == self.v0.shape == self.v1.shape == a0.shape == a1.shape):
+            raise ValueError("All entries must have the same shape (1D, 2D, or 3D).")
+        self.a0, self.a1 = a0, a1
+        self._recompute_coefficients()
+
     def _compute_coeffs_1d(self, p0, p1, v0, v1, a0, a1):
         """
         Solve for quintic polynomial coefficients in 1D.
@@ -43,6 +85,14 @@ class QuinticHermiteSegment:
         ])
         b = np.array([p0, v0, a0, p1, v1, a1])
         return np.linalg.solve(A, b)
+
+    def _recompute_coefficients(self):
+        self.coefficients = np.stack([
+            self._compute_coeffs_1d(self.p0[d], self.p1[d],
+                                    self.v0[d], self.v1[d],
+                                    self.a0[d], self.a1[d])
+            for d in range(self.dim)
+        ], axis=0)
 
     def evaluate(self, t):
         """

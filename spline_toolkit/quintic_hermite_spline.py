@@ -6,6 +6,42 @@ class QuinticHermiteSpline:
     def __init__(self, segment: QuinticHermiteSegment):
         self.segments = [segment]
 
+    @property
+    def control_points(self):
+        return [seg.p0 for seg in self.segments] + [self.segments[-1].p1]
+
+    @control_points.setter
+    def control_points(self, new_points):
+        if len(new_points) != len(self.segments) + 1:
+            raise ValueError("Length of control points must be one more than number of segments.")
+        for i, seg in enumerate(self.segments):
+            seg.p0 = new_points[i]
+            seg.p1 = new_points[i + 1]
+
+    @property
+    def control_tangents(self):
+        return [seg.v0 for seg in self.segments] + [self.segments[-1].v1]
+
+    @control_tangents.setter
+    def control_tangents(self, new_tangents):
+        if len(new_tangents) != len(self.segments) + 1:
+            raise ValueError("Length of tangents must be one more than number of segments.")
+        for i, seg in enumerate(self.segments):
+            seg.v0 = new_tangents[i]
+            seg.v1 = new_tangents[i + 1]
+
+    @property
+    def control_curvatures(self):
+        return [seg.a0 for seg in self.segments] + [self.segments[-1].a1]
+
+    @control_curvatures.setter
+    def control_curvatures(self, new_curvatures):
+        if len(new_curvatures) != len(self.segments) + 1:
+            raise ValueError("Length of curvatures must be one more than number of segments.")
+        for i, seg in enumerate(self.segments):
+            seg.a0 = new_curvatures[i]
+            seg.a1 = new_curvatures[i + 1]
+
     @classmethod
     def from_controls(cls, points, tangents, curvatures):
         if not (len(points) == len(tangents) == len(curvatures)):
