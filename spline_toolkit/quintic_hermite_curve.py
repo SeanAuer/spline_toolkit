@@ -50,3 +50,18 @@ class QuinticHermiteCurve:
         for spline in self.splines:
             spline.resample(num_samples_per_spline)
         self.samples = np.vstack([spline.samples for spline in self.splines])
+
+    def sample(self, n):
+        # Evenly distribute n samples across all splines
+        num_splines = len(self.splines)
+        samples_per_spline = n // num_splines
+        remainder = n % num_splines
+        samples = []
+        for i, spline in enumerate(self.splines):
+            n_samples = samples_per_spline + (1 if i < remainder else 0)
+            s = spline.resample(n_samples)
+            # Avoid duplicate points at segment boundaries except for the first spline
+            if i > 0:
+                s = s[1:]
+            samples.append(s)
+        return np.vstack(samples)
