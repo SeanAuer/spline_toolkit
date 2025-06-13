@@ -1,104 +1,96 @@
 import numpy as np
+from spline_toolkit import QuinticHermiteSegment
+
 
 class QuinticHermiteSpline:
-    """
-    Class for Quintic Hermite Spline interpolation."
-    """
-    def __init__(self, points, tangents, curvatures=None, num_samples=100):
-        """
-        Initialize the Quintic Hermite Spline with point and tangency values.
-        :param points: List of two points to interpolate.
-        :param tangents: List of two tangent values at the specified points.
-        :param curvatures: List of two curvature values at the specified points.
-        """
-        if curvatures is None:
-            curvatures = [0, 0]
-        if len(points) != 2 or len(tangents) != len(points) or len(curvatures) != len(points):
-            raise ValueError(f"Points and tangents must be lists of rank two. \
-        )                    Received: {len(points)} points and {len(tangents)} tangent values and {len(curvatures)} curvature values.")
-        if type(points) is not np.ndarray:
-            points = np.array(points)
-        if type(curvatures) is not np.ndarray:
-            curvatures = np.array(curvatures)
-        self.p0, self.p1 = points
-        self.t0, self.t1 = tangents
-        # Ensure curvatures are arrays matching p0's shape
-        self.c0 = np.array(curvatures[0]) if not isinstance(curvatures[0], np.ndarray) else curvatures[0]
-        self.c1 = np.array(curvatures[1]) if not isinstance(curvatures[1], np.ndarray) else curvatures[1]
+    def __init__(self, segment: QuinticHermiteSegment):
+        self.segments = [segment]
 
+    @classmethod
+    def from_controls(cls, points, tangents, curvatures):
+        if not (len(points) == len(tangents) == len(curvatures)):
+            raise ValueError("points, tangents, and curvatures must have the same length")
+        obj = cls.__new__(cls)
+        obj.segments = []
+        for i in range(len(points) - 1):
+            seg = QuinticHermiteSegment(
+                points=[points[i], points[i + 1]],
+                tangents=[tangents[i], tangents[i + 1]],
+                curvatures=[curvatures[i], curvatures[i + 1]]
+            )
+            obj.segments.append(seg)
+        return obj
 
-        def _angle_to_vector(angle, dim):
-            # Allow optional magnitude: angle can be float or (angle, magnitude)
-            if isinstance(angle, tuple):
-                if dim == 2 and len(angle) == 2 and isinstance(angle[0], (float, int)):
-                    theta, mag = angle
-                elif dim == 3 and len(angle) == 2 and isinstance(angle[0], tuple):
-                    (theta, phi), mag = angle
-                else:
-                    raise ValueError("Invalid angle format.")
+    @classmethod
+    def from_segments(cls, *args, tolerance=1e-8):
+        # Allow passing either a list of segments or multiple segment arguments
+        if len(args) == 1 and isinstance(args[0], (list, tuple)):
+            segments = list(args[0])
+        else:
+            segments = list(args)
+
+        if len(segments) < 1:
+            raise ValueError("At least one segment must be provided.")
+
+        for i in range(len(segments) - 1):
+            s1 = segments[i]
+            s2 = segments[i + 1]
+            if not (np.allclose(s1.p1, s2.p0, atol=tolerance) and
+                    np.allclose(s1.v1, s2.v0, atol=tolerance) and
+                    np.allclose(s1.a1, s2.a0, atol=tolerance)):
+                raise ValueError(f"Segments {i} and {i+1} are not C² continuous.")
+
+        obj = cls.__new__(cls)
+        obj.segments = segments
+        return obj
+
+    def add_point(self, point, tangent, curvature, index=None):
+        if index is None:
+            last = self.segments[-1]
+            new_segment = QuinticHermiteSegment(
+                points=[last.p1, point],
+                tangents=[last.v1, tangent],
+                curvatures=[last.a1, curvature]
+            )
+            self.segments.append(new_segment)
+        else:
+            if index < 0 or index > len(self.segments):
+                raise IndexError("Invalid index for insertion.")
+            if index == 0:
+                raise ValueError("Cannot insert before the first point.")
+            before_seg = self.segments[index - 1]
+            new_segment = QuinticHermiteSegment(
+                points=[before_seg.p1, point],
+                tangents=[before_seg.v1, tangent],
+                curvatures=[before_seg.a1, curvature]
+            )
+            after_seg = QuinticHermiteSegment(
+                points=[point, self.segments[index].p1],
+                tangents=[tangent, self.segments[index].v1],
+                curvatures=[curvature, self.segments[index].a1]
+            )
+            self.segments = (
+                self.segments[:index] + [new_segment, after_seg] + self.segments[index + 1:]
+            )
+
+    def sample(self, n_points=None):
+        sampled_points = []
+
+        if n_points is None:
+            # Default: uniform number of points per segment
+            for seg in self.segments:
+                sampled_points.extend(seg.sample(n_points=100))
+        else:
+            # Distribute n_points based on segment curvature
+            curvatures = [np.max(np.linalg.norm([seg.a0, seg.a1], axis=1)) for seg in self.segments]
+            total_curvature = sum(curvatures)
+            if total_curvature == 0:
+                weights = [1 / len(self.segments)] * len(self.segments)
             else:
-                theta = angle
-                mag = 1.0
+                weights = [c / total_curvature for c in curvatures]
 
-            if dim == 2:
-                v = np.array([np.cos(theta), np.sin(theta)])
-            elif dim == 3:
-                v = np.array([
-                    np.cos(theta) * np.cos(phi),
-                    np.sin(theta) * np.cos(phi),
-                    np.sin(phi)
-                ])
-            else:
-                raise ValueError("Angle-based input only supported in 2D or 3D.")
+            points_per_seg = [max(2, int(round(w * n_points))) for w in weights]
+            for seg, pts in zip(self.segments, points_per_seg):
+                sampled_points.extend(seg.sample(n_points=pts))
 
-            return mag * v
-
-        # Convert angles to vectors if needed
-        for i in range(2):
-            tangent = self.t0 if i == 0 else self.t1
-            if isinstance(tangent, (float, tuple)):
-                dim = len(self.p0)
-                vec = _angle_to_vector(tangent, dim)
-                if i == 0:
-                    self.t0 = vec
-                else:
-                    self.t1 = vec
-
-        # Precompute samples for plotting
-        self.resample(num_samples)
-
-    def resample(self, num_samples=100):
-        """
-        Sample points along the Quintic Hermite Spline.
-        :param num_samples: Number of samples to generate.
-        :return: Array of sampled points.
-        """
-        self.samples = np.array([self.evaluate(t) for t in np.linspace(0, 1, num_samples)])
-        return self.samples
-
-    def evaluate(self, t):
-        """
-        Evaluate the Quintic Hermite Spline at a given parameter t.
-        :param t: Parameter value in the range [0, 1].
-        :return: Interpolated value at parameter t.
-        """
-        H0 = 1 - 10*t**3 + 15*t**4 - 6*t**5
-        H1 = t - 6*t**3 + 8*t**4 - 3*t**5
-        H2 = 0.5*t**2 - 1.5*t**3 + 1.5*t**4 - 0.5*t**5
-        H3 = 10*t**3 - 15*t**4 + 6*t**5
-        H4 = -4*t**3 + 7*t**4 - 3*t**5
-        H5 = 0.5*t**3 - t**4 + 0.5*t**5
-
-        return (
-            H0 * self.p0 +
-            H1 * self.t0 +
-            H2 * self.c0 +
-            H3 * self.p1 +
-            H4 * self.t1 +
-            H5 * self.c1
-        )
-
-    def report(self):
-        print("Quintic Hermite Spline Parameters:")
-        print(f"p0: {self.p0}, t0: {self.t0}, c0: {self.c0}")
-        print(f"p1: {self.p1}, t1: {self.t1}, c1: {self.c1}")       
+        return np.array(sampled_points)
