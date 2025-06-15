@@ -39,5 +39,4 @@ Licensed under the Apache License 2.0. See `LICENSE` file for details.
 
 ## Planned Extensions
 
-- B-spline and Bézier curve implementations
-- 3-D spline and curve support
+- Bézier curve implementation
